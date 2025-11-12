@@ -23,9 +23,8 @@ voice_test = {}
 extract_text = []
 avearge = {}
 
-key_pattern = re.compile(r"\[['\"](
-
-[^'\"]+)['\"]\]")
+# FIXED: Proper regex pattern with escaped brackets
+key_pattern = re.compile(r"$$['\"]([^'\"]+)['\"]$$")
 
 
 def _normalize_name(s: str) -> str:
@@ -186,7 +185,7 @@ def group_images_by_sector(image_paths: List[str]) -> dict:
     """Group extracted images by sector (alpha/beta/gamma/voicetest)"""
     images_by_sector = {"alpha": [], "beta": [], "gamma": [], "voicetest": [], "unknown": []}
     for p in image_paths:
-        sector = Path(p).stem.split("_")[0]
+        sector = Path(p).stem.split("_")
         if sector in images_by_sector:
             images_by_sector[sector].append(p)
         else:
