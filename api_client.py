@@ -32,12 +32,12 @@ class APIClient:
         
         content = content.strip()
         
-        # Remove markdown code block wrappers
+        # Remove markdown code block wrappers (three backticks)
         if content.startswith("```
-            # Remove opening ```json or ```
-            content = re.sub(r'^```(?:json)?\s*\n?', '', content)
-            # Remove closing ```
-            content = re.sub(r'\n?```\s*$', '', content)
+            # Remove opening code fence
+            content = re.sub(r"^```(?:json)?\s*\n?", "", content)
+            # Remove closing code fence
+            content = re.sub(r"\n?```
         
         return content.strip()
     
@@ -99,16 +99,29 @@ class APIClient:
         try:
             resp = self._post_chat_completion(payload, timeout=120)
             resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"]
+            content = resp.json()["choices"]["message"]["content"]
             content = self._clean_json_response(content)
             result = json.loads(content)
             self.log(f"[API] ✓ Success - Service data for '{sector}'")
             return result
+        except requests.exceptions.RequestException as e:
+            self.error_count += 1
+            self.log(f"[API ERROR] Network error processing service images: {e}")
+            return None
+        except (KeyError, IndexError) as e:
+            self.error_count += 1
+            self.log(f"[API ERROR] API response format changed! Missing key: {e}")
+            if "resp" in locals():
+                self.log(f"[API ERROR] Raw response: {getattr(resp, 'text', '')[:500]}")
+            return None
+        except json.JSONDecodeError as e:
+            self.error_count += 1
+            self.log(f"[API ERROR] JSON parsing failed - API format may have changed!")
+            self.log(f"[API ERROR] Content: {content[:200] if 'content' in locals() else 'N/A'}")
+            return None
         except Exception as e:
             self.error_count += 1
-            self.log(f"[API ERROR] Service image processing failed: {e}")
-            if "resp" in locals():
-                self.log(f"[API ERROR] Response: {getattr(resp, 'text', '')[:500]}")
+            self.log(f"[API ERROR] Unexpected error: {type(e).__name__} - {e}")
             return None
         finally:
             time.sleep(2)
@@ -149,16 +162,29 @@ class APIClient:
         try:
             resp = self._post_chat_completion(payload, timeout=60)
             resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"]
+            content = resp.json()["choices"]["message"]["content"]
             content = self._clean_json_response(content)
             result = json.loads(content)
             self.log(f"[API] ✓ Success - '{image_name}' classified as '{result.get('image_type', 'unknown')}'")
             return result
+        except requests.exceptions.RequestException as e:
+            self.error_count += 1
+            self.log(f"[API ERROR] Network error analyzing '{image_name}': {e}")
+            return None
+        except (KeyError, IndexError) as e:
+            self.error_count += 1
+            self.log(f"[API ERROR] API response format changed! Missing key: {e}")
+            if "resp" in locals():
+                self.log(f"[API ERROR] Raw response: {getattr(resp, 'text', '')[:500]}")
+            return None
+        except json.JSONDecodeError as e:
+            self.error_count += 1
+            self.log(f"[API ERROR] JSON parsing failed - API format may have changed!")
+            self.log(f"[API ERROR] Content: {content[:200] if 'content' in locals() else 'N/A'}")
+            return None
         except Exception as e:
             self.error_count += 1
-            self.log(f"[API ERROR] Generic image analysis failed for '{image_name}': {e}")
-            if "resp" in locals():
-                self.log(f"[API ERROR] Response: {getattr(resp, 'text', '')[:500]}")
+            self.log(f"[API ERROR] Unexpected error: {type(e).__name__} - {e}")
             return None
         finally:
             time.sleep(2)
@@ -198,16 +224,29 @@ class APIClient:
         try:
             resp = self._post_chat_completion(payload, timeout=60)
             resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"]
+            content = resp.json()["choices"]["message"]["content"]
             content = self._clean_json_response(content)
             res = json.loads(content)
             self.log(f"[API] ✓ Success - Voice image '{image_name}' processed")
             return res
+        except requests.exceptions.RequestException as e:
+            self.error_count += 1
+            self.log(f"[API ERROR] Network error analyzing voice '{image_name}': {e}")
+            return None
+        except (KeyError, IndexError) as e:
+            self.error_count += 1
+            self.log(f"[API ERROR] API response format changed! Missing key: {e}")
+            if "resp" in locals():
+                self.log(f"[API ERROR] Raw response: {getattr(resp, 'text', '')[:500]}")
+            return None
+        except json.JSONDecodeError as e:
+            self.error_count += 1
+            self.log(f"[API ERROR] JSON parsing failed - API format may have changed!")
+            self.log(f"[API ERROR] Content: {content[:200] if 'content' in locals() else 'N/A'}")
+            return None
         except Exception as e:
             self.error_count += 1
-            self.log(f"[API ERROR] Voice image analysis failed for '{image_name}': {e}")
-            if "resp" in locals():
-                self.log(f"[API ERROR] Response: {getattr(resp, 'text', '')[:500]}")
+            self.log(f"[API ERROR] Unexpected error: {type(e).__name__} - {e}")
             return None
         finally:
             time.sleep(2)
@@ -256,15 +295,13 @@ class APIClient:
         try:
             resp = self._post_chat_completion(payload, timeout=30)
             resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"]
+            content = resp.json()["choices"]["message"]["content"]
             content = self._clean_json_response(content)
             parsed = json.loads(content)
             return parsed.get("value", None)
         except Exception as e:
             self.error_count += 1
             self.log(f"[API ERROR] Expression evaluation failed for '{expression}': {e}")
-            if "resp" in locals():
-                self.log(f"[API ERROR] Response: {getattr(resp, 'text', '')[:500]}")
             return None
     
     def get_stats(self) -> dict:
