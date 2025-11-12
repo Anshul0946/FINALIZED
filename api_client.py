@@ -35,7 +35,7 @@ class APIClient:
         # Remove markdown code block wrappers (avoiding problematic backtick strings)
         content = re.sub(r"^```")
         content = re.sub(r"^```\s*\n?", "", content)
-        content = re.sub(r"\n?```
+        content = re.sub(r"\n?```\s*$", "", content)
         
         return content.strip()
     
