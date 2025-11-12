@@ -33,7 +33,7 @@ class APIClient:
         content = content.strip()
         
         # Remove markdown code block wrappers (three backticks)
-        if content.startswith("```
+        if content.startswith("```"):
             # Remove opening code fence
             content = re.sub(r"^```(?:json)?\s*\n?", "", content)
             # Remove closing code fence
