@@ -14,11 +14,7 @@ import streamlit as st
 from config import MODEL_SERVICE_DEFAULT, MODEL_GENERIC_DEFAULT, SERVICE_SCHEMA, GENERIC_SCHEMAS
 from api_client import APIClient
 from excel_handler import extract_images_from_excel, scan_bold_red_expressions, map_values_to_template
-from data_processor import (
-    group_images_by_sector, resolve_expression_with_vars, set_nested_value_case_insensitive,
-    contains_nulls, missing_service_fields, compute_averages, key_pattern,
-    reset_global_data_stores, get_global_data_stores
-)
+import data_processor
 
 
 def log_append(log_placeholder, logs_list: list, msg: str):
@@ -43,8 +39,7 @@ def process_file_streamlit(user_file_path: str,
     """Main processing pipeline"""
     
     # Reset global data stores
-    reset_global_data_stores()
-    stores = get_global_data_stores()
+    data_processor.reset_global_data_stores()
     
     # Initialize API client with logging
     api = APIClient(token, log_callback=lambda msg: log_append(text_area_placeholder, logs, msg))
@@ -74,7 +69,7 @@ def process_file_streamlit(user_file_path: str,
         return None
     
     # Group images by sector
-    images_by_sector = group_images_by_sector(image_paths)
+    images_by_sector = data_processor.group_images_by_sector(image_paths)
     
     log_append(text_area_placeholder, logs, "[PROCESS] Starting main processing loop...")
     
@@ -89,7 +84,13 @@ def process_file_streamlit(user_file_path: str,
         if img1 and img2:
             svc = api.process_service_images(img1, img2, model_service, sector)
             if svc:
-                stores[f"{sector}_service"].update(svc)
+                # Direct access to module globals
+                if sector == "alpha":
+                    data_processor.alpha_service.update(svc)
+                elif sector == "beta":
+                    data_processor.beta_service.update(svc)
+                elif sector == "gamma":
+                    data_processor.gamma_service.update(svc)
         else:
             log_append(text_area_placeholder, logs, f"[WARN] Missing service images for {sector}")
         
@@ -104,11 +105,21 @@ def process_file_streamlit(user_file_path: str,
             if res and "image_type" in res:
                 image_name = Path(img).stem
                 if res["image_type"] == "speed_test":
-                    stores[f"{sector}_speedtest"][image_name] = res.get("data", {})
+                    if sector == "alpha":
+                        data_processor.alpha_speedtest[image_name] = res.get("data", {})
+                    elif sector == "beta":
+                        data_processor.beta_speedtest[image_name] = res.get("data", {})
+                    elif sector == "gamma":
+                        data_processor.gamma_speedtest[image_name] = res.get("data", {})
                 elif res["image_type"] == "video_test":
-                    stores[f"{sector}_video"][image_name] = res.get("data", {})
+                    if sector == "alpha":
+                        data_processor.alpha_video[image_name] = res.get("data", {})
+                    elif sector == "beta":
+                        data_processor.beta_video[image_name] = res.get("data", {})
+                    elif sector == "gamma":
+                        data_processor.gamma_video[image_name] = res.get("data", {})
                 elif res["image_type"] == "voice_call":
-                    stores["voice_test"][image_name] = res.get("data", {})
+                    data_processor.voice_test[image_name] = res.get("data", {})
     
     # Process voicetest sector
     if images_by_sector["voicetest"]:
@@ -116,7 +127,7 @@ def process_file_streamlit(user_file_path: str,
         for img in images_by_sector["voicetest"]:
             res = api.analyze_voice_image(img, model_generic, Path(img).name)
             if res and res.get("image_type") == "voice_call":
-                stores["voice_test"][Path(img).stem] = res.get("data", {})
+                data_processor.voice_test[Path(img).stem] = res.get("data", {})
     
     # Evaluation pass
     log_append(text_area_placeholder, logs, "\n[PROCESS] Starting evaluation pass...")
@@ -126,9 +137,14 @@ def process_file_streamlit(user_file_path: str,
     
     # Re-evaluate service dicts with missing/null fields
     for sector in ["alpha", "beta", "gamma"]:
-        svc_var = stores[f"{sector}_service"]
+        if sector == "alpha":
+            svc_var = data_processor.alpha_service
+        elif sector == "beta":
+            svc_var = data_processor.beta_service
+        else:
+            svc_var = data_processor.gamma_service
         
-        if not svc_var or contains_nulls(svc_var):
+        if not svc_var or data_processor.contains_nulls(svc_var):
             img1 = next((p for p in images_by_sector[sector] if Path(p).stem.endswith("_image_1")), None)
             img2 = next((p for p in images_by_sector[sector] if Path(p).stem.endswith("_image_2")), None)
             
@@ -143,75 +159,81 @@ def process_file_streamlit(user_file_path: str,
                             svc_var[k] = v
     
     # Helper: retry single images
-def _retry_image_and_merge(image_name: str, sector_var_map: dict) -> bool:
-    image_path = os.path.join(images_temp, f"{image_name}.png")
-    if not os.path.exists(image_path):
-        found = None
-        for s_list in images_by_sector.values():
-            for p in s_list:
-                if Path(p).stem == image_name:
-                    found = p
+    def _retry_image_and_merge(image_name: str, sector_var_map: dict) -> bool:
+        image_path = os.path.join(images_temp, f"{image_name}.png")
+        if not os.path.exists(image_path):
+            found = None
+            for s_list in images_by_sector.values():
+                for p in s_list:
+                    if Path(p).stem == image_name:
+                        found = p
+                        break
+                if found:
                     break
+            
             if found:
-                break
+                image_path = found
+            else:
+                log_append(text_area_placeholder, logs, f"[EVAL WARN] Image {image_name} not found.")
+                return False
         
-        if found:
-            image_path = found
-        else:
-            log_append(text_area_placeholder, logs, f"[EVAL WARN] Image {image_name} not found.")
+        # FIX: Ensure image_path is always a string
+        image_path_str = str(image_path)
+        
+        if image_path_str in retried_images:
             return False
-    
-    # Ensure image_path is string (fix for unhashable type error)
-    image_path = str(image_path) if not isinstance(image_path, list) else str(image_path[0])
-    
-    if str(image_path) in retried_images:
+        
+        is_voice = image_name.startswith("voicetest")
+        
+        log_append(text_area_placeholder, logs, f"[EVAL] Retrying analysis for {image_name}")
+        if is_voice:
+            normal_res = api.analyze_voice_image(image_path_str, model_generic, image_name)
+        else:
+            normal_res = api.analyze_generic_image(image_path_str, model_generic, image_name)
+        
+        retried_images.add(image_path_str)
+        
+        if normal_res and "image_type" in normal_res:
+            sector_var_map.setdefault(image_name, {})
+            data = normal_res.get("data", {})
+            for k, v in data.items():
+                if sector_var_map[image_name].get(k) is None and v is not None:
+                    sector_var_map[image_name][k] = v
+            return True
+        
+        # Try careful evaluation
+        if is_voice:
+            eval_res = api.evaluate_voice_image(image_path_str, model_generic, image_name)
+        else:
+            eval_res = api.evaluate_generic_image(image_path_str, model_generic, image_name)
+        
+        if eval_res and "image_type" in eval_res:
+            sector_var_map.setdefault(image_name, {})
+            for k, v in eval_res.get("data", {}).items():
+                if sector_var_map[image_name].get(k) is None and v is not None:
+                    sector_var_map[image_name][k] = v
+            return True
+        
         return False
     
-    is_voice = image_name.startswith("voicetest")
-    
-    log_append(text_area_placeholder, logs, f"[EVAL] Retrying analysis for {image_name}")
-    if is_voice:
-        normal_res = api.analyze_voice_image(image_path, model_generic, image_name)
-    else:
-        normal_res = api.analyze_generic_image(image_path, model_generic, image_name)
-    
-    retried_images.add(image_path)
-    
-    if normal_res and "image_type" in normal_res:
-        sector_var_map.setdefault(image_name, {})
-        data = normal_res.get("data", {})
-        for k, v in data.items():
-            if sector_var_map[image_name].get(k) is None and v is not None:
-                sector_var_map[image_name][k] = v
-        return True
-    
-    # Try careful evaluation
-    if is_voice:
-        eval_res = api.evaluate_voice_image(image_path, model_generic, image_name)
-    else:
-        eval_res = api.evaluate_generic_image(image_path, model_generic, image_name)
-    
-    if eval_res and "image_type" in eval_res:
-        sector_var_map.setdefault(image_name, {})
-        for k, v in eval_res.get("data", {}).items():
-            if sector_var_map[image_name].get(k) is None and v is not None:
-                sector_var_map[image_name][k] = v
-        return True
-    
-    return False
-
     # Rule 2: Verify expected images and completeness
     sector_maps = [
-        ("alpha", stores["alpha_speedtest"], stores["alpha_video"]),
-        ("beta", stores["beta_speedtest"], stores["beta_video"]),
-        ("gamma", stores["gamma_speedtest"], stores["gamma_video"]),
+        ("alpha", data_processor.alpha_speedtest, data_processor.alpha_video),
+        ("beta", data_processor.beta_speedtest, data_processor.beta_video),
+        ("gamma", data_processor.gamma_speedtest, data_processor.gamma_video),
     ]
     
     for sector, speed_map, video_map in sector_maps:
         log_append(text_area_placeholder, logs, f"[RULE2] Verifying {sector} completeness...")
         
-        svc_var = stores[f"{sector}_service"]
-        svc_missing = missing_service_fields(svc_var) if svc_var else list(SERVICE_SCHEMA.keys())
+        if sector == "alpha":
+            svc_var = data_processor.alpha_service
+        elif sector == "beta":
+            svc_var = data_processor.beta_service
+        else:
+            svc_var = data_processor.gamma_service
+            
+        svc_missing = data_processor.missing_service_fields(svc_var) if svc_var else list(SERVICE_SCHEMA.keys())
         
         if svc_missing and sector not in retried_service_sectors:
             img1 = next((p for p in images_by_sector[sector] if Path(p).stem.endswith("_image_1")), None)
@@ -227,7 +249,7 @@ def _retry_image_and_merge(image_name: str, sector_var_map: dict) -> bool:
                         if svc_var.get(k) is None and v is not None:
                             svc_var[k] = v
                     
-                    if missing_service_fields(svc_var):
+                    if data_processor.missing_service_fields(svc_var):
                         eval_svc = api.evaluate_service_images(img1, img2, model_service, sector)
                         if eval_svc:
                             for k, v in eval_svc.items():
@@ -265,25 +287,25 @@ def _retry_image_and_merge(image_name: str, sector_var_map: dict) -> bool:
     log_append(text_area_placeholder, logs, "[RULE2] Verifying voicetest completeness...")
     for img_path in images_by_sector["voicetest"]:
         name = Path(img_path).stem
-        if name not in stores["voice_test"]:
+        if name not in data_processor.voice_test:
             log_append(text_area_placeholder, logs, f"[RULE2] Processing missing voice {name}")
-            _retry_image_and_merge(name, stores["voice_test"])
+            _retry_image_and_merge(name, data_processor.voice_test)
         else:
             missing = []
             for k in GENERIC_SCHEMAS["voice_call"]["data"].keys():
-                if k not in stores["voice_test"][name] or stores["voice_test"][name].get(k) is None:
+                if k not in data_processor.voice_test[name] or data_processor.voice_test[name].get(k) is None:
                     missing.append(k)
             if missing:
                 log_append(text_area_placeholder, logs, f"[RULE2] {name} missing {missing}")
-                _retry_image_and_merge(name, stores["voice_test"])
+                _retry_image_and_merge(name, data_processor.voice_test)
     
     log_append(text_area_placeholder, logs, "[PROCESS] Rule 2 verification complete.")
     
     # Compute averages
-    stores["avearge"] = compute_averages(
-        stores["alpha_speedtest"],
-        stores["beta_speedtest"],
-        stores["gamma_speedtest"]
+    data_processor.avearge = data_processor.compute_averages(
+        data_processor.alpha_speedtest,
+        data_processor.beta_speedtest,
+        data_processor.gamma_speedtest
     )
     
     # Scan template for bold+red expressions
@@ -294,28 +316,28 @@ def _retry_image_and_merge(image_name: str, sector_var_map: dict) -> bool:
     
     # Extract expressions for reference
     for _, expr in cells_to_process:
-        stores["extract_text"].append(expr)
+        data_processor.extract_text.append(expr)
     
     # Map values to template
     allowed_vars = {
-        "alpha_service": stores["alpha_service"],
-        "beta_service": stores["beta_service"],
-        "gamma_service": stores["gamma_service"],
-        "alpha_speedtest": stores["alpha_speedtest"],
-        "beta_speedtest": stores["beta_speedtest"],
-        "gamma_speedtest": stores["gamma_speedtest"],
-        "alpha_video": stores["alpha_video"],
-        "beta_video": stores["beta_video"],
-        "gamma_video": stores["gamma_video"],
-        "voice_test": stores["voice_test"],
-        "avearge": stores["avearge"],
+        "alpha_service": data_processor.alpha_service,
+        "beta_service": data_processor.beta_service,
+        "gamma_service": data_processor.gamma_service,
+        "alpha_speedtest": data_processor.alpha_speedtest,
+        "beta_speedtest": data_processor.beta_speedtest,
+        "gamma_speedtest": data_processor.gamma_speedtest,
+        "alpha_video": data_processor.alpha_video,
+        "beta_video": data_processor.beta_video,
+        "gamma_video": data_processor.gamma_video,
+        "voice_test": data_processor.voice_test,
+        "avearge": data_processor.avearge,
     }
     
     result_path = map_values_to_template(
         local_template,
         cells_to_process,
         allowed_vars,
-        resolve_expression_with_vars,
+        data_processor.resolve_expression_with_vars,
         lambda msg: log_append(text_area_placeholder, logs, msg)
     )
     
