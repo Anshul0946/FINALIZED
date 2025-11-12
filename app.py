@@ -69,7 +69,8 @@ def process_file_streamlit(user_file_path: str,
         return None
     
     # Group images by sector
-    images_by_sector = data_processor.group_images_by_sector(image_paths)
+    image_paths_clean = [str(p) for p in image_paths if p]  # Convert all to strings
+    images_by_sector = data_processor.group_images_by_sector(image_paths_clean)
     
     log_append(text_area_placeholder, logs, "[PROCESS] Starting main processing loop...")
     
