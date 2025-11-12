@@ -7,6 +7,7 @@ Main entry point for the application.
 import os
 import tempfile
 import shutil
+import time
 from pathlib import Path
 import streamlit as st
 
@@ -22,7 +23,6 @@ from data_processor import (
 
 def log_append(log_placeholder, logs_list: list, msg: str):
     """Append timestamped log and update display"""
-    import time
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}"
     logs_list.append(line)
@@ -89,12 +89,7 @@ def process_file_streamlit(user_file_path: str,
         if img1 and img2:
             svc = api.process_service_images(img1, img2, model_service, sector)
             if svc:
-                if sector == "alpha":
-                    stores["alpha_service"].update(svc)
-                elif sector == "beta":
-                    stores["beta_service"].update(svc)
-                elif sector == "gamma":
-                    stores["gamma_service"].update(svc)
+                stores[f"{sector}_service"].update(svc)
         else:
             log_append(text_area_placeholder, logs, f"[WARN] Missing service images for {sector}")
         
@@ -109,19 +104,9 @@ def process_file_streamlit(user_file_path: str,
             if res and "image_type" in res:
                 image_name = Path(img).stem
                 if res["image_type"] == "speed_test":
-                    if sector == "alpha":
-                        stores["alpha_speedtest"][image_name] = res.get("data", {})
-                    elif sector == "beta":
-                        stores["beta_speedtest"][image_name] = res.get("data", {})
-                    elif sector == "gamma":
-                        stores["gamma_speedtest"][image_name] = res.get("data", {})
+                    stores[f"{sector}_speedtest"][image_name] = res.get("data", {})
                 elif res["image_type"] == "video_test":
-                    if sector == "alpha":
-                        stores["alpha_video"][image_name] = res.get("data", {})
-                    elif sector == "beta":
-                        stores["beta_video"][image_name] = res.get("data", {})
-                    elif sector == "gamma":
-                        stores["gamma_video"][image_name] = res.get("data", {})
+                    stores[f"{sector}_video"][image_name] = res.get("data", {})
                 elif res["image_type"] == "voice_call":
                     stores["voice_test"][image_name] = res.get("data", {})
     
@@ -218,9 +203,6 @@ def process_file_streamlit(user_file_path: str,
         ("beta", stores["beta_speedtest"], stores["beta_video"]),
         ("gamma", stores["gamma_speedtest"], stores["gamma_video"]),
     ]
-    
-    # NOTE: Expected indices are dynamically determined from actual images found
-    # Not hardcoded as constants to maintain flexibility
     
     for sector, speed_map, video_map in sector_maps:
         log_append(text_area_placeholder, logs, f"[RULE2] Verifying {sector} completeness...")
@@ -378,31 +360,37 @@ def main():
             
             log_placeholder = st.empty()
             
-            result_path = process_file_streamlit(
-                user_file_path=user_file_path,
-                token=st.session_state["api_token"],
-                temp_dir=temp_dir,
-                logs=st.session_state["logs"],
-                text_area_placeholder=log_placeholder,
-            )
+            try:
+                result_path = process_file_streamlit(
+                    user_file_path=user_file_path,
+                    token=st.session_state["api_token"],
+                    temp_dir=temp_dir,
+                    logs=st.session_state["logs"],
+                    text_area_placeholder=log_placeholder,
+                )
+                
+                if result_path and os.path.exists(result_path):
+                    st.success("✅ Processing complete! Download your filled template below:")
+                    
+                    with open(result_path, "rb") as f:
+                        st.download_button(
+                            label="⬇️ Download Filled Template",
+                            data=f.read(),
+                            file_name=f"filled_{uploaded_file.name}",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                else:
+                    st.error("❌ Processing failed. Check logs above for details.")
             
-            if result_path and os.path.exists(result_path):
-                st.success("✅ Processing complete! Download your filled template below:")
-                
-                with open(result_path, "rb") as f:
-                    st.download_button(
-                        label="⬇️ Download Filled Template",
-                        data=f.read(),
-                        file_name=f"filled_{uploaded_file.name}",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-                
+            except Exception as e:
+                st.error(f"❌ Fatal error: {type(e).__name__} - {str(e)}")
+                log_append(log_placeholder, st.session_state["logs"], f"[FATAL ERROR] {e}")
+            
+            finally:
                 try:
                     shutil.rmtree(temp_dir)
                 except Exception:
                     pass
-            else:
-                st.error("❌ Processing failed. Check logs above for details.")
 
 
 if __name__ == "__main__":
