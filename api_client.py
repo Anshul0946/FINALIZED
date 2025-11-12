@@ -32,12 +32,10 @@ class APIClient:
         
         content = content.strip()
         
-        # Remove markdown code block wrappers (three backticks)
-        if content.startswith("```"):
-            # Remove opening code fence
-            content = re.sub(r"^```(?:json)?\s*\n?", "", content)
-            # Remove closing code fence
-            content = re.sub(r"\n?```
+        # Remove markdown code block wrappers (avoiding problematic backtick strings)
+        content = re.sub(r"^```")
+        content = re.sub(r"^```\s*\n?", "", content)
+        content = re.sub(r"\n?```
         
         return content.strip()
     
@@ -102,11 +100,11 @@ class APIClient:
             content = resp.json()["choices"]["message"]["content"]
             content = self._clean_json_response(content)
             result = json.loads(content)
-            self.log(f"[API] ✓ Success - Service data for '{sector}'")
+            self.log(f"[API] Success - Service data for '{sector}'")
             return result
         except requests.exceptions.RequestException as e:
             self.error_count += 1
-            self.log(f"[API ERROR] Network error processing service images: {e}")
+            self.log(f"[API ERROR] Network error: {e}")
             return None
         except (KeyError, IndexError) as e:
             self.error_count += 1
@@ -137,7 +135,7 @@ class APIClient:
                 b = base64.b64encode(f.read()).decode("utf-8")
         except Exception as e:
             self.error_count += 1
-            self.log(f"[API ERROR] Could not read/encode image '{image_name}': {e}")
+            self.log(f"[API ERROR] Could not read image '{image_name}': {e}")
             return None
         
         prompt = (
@@ -165,11 +163,11 @@ class APIClient:
             content = resp.json()["choices"]["message"]["content"]
             content = self._clean_json_response(content)
             result = json.loads(content)
-            self.log(f"[API] ✓ Success - '{image_name}' classified as '{result.get('image_type', 'unknown')}'")
+            self.log(f"[API] Success - '{image_name}' classified as '{result.get('image_type', 'unknown')}'")
             return result
         except requests.exceptions.RequestException as e:
             self.error_count += 1
-            self.log(f"[API ERROR] Network error analyzing '{image_name}': {e}")
+            self.log(f"[API ERROR] Network error: {e}")
             return None
         except (KeyError, IndexError) as e:
             self.error_count += 1
@@ -191,7 +189,7 @@ class APIClient:
     
     def analyze_voice_image(self, image_path: str, model_name: str, 
                            image_name: str) -> Optional[dict]:
-        """Analyze voice call screenshot with emphasis on time field"""
+        """Analyze voice call screenshot"""
         self.call_count += 1
         self.log(f"[API] Call #{self.call_count} - Voice analysis for '{image_name}'")
         
@@ -200,7 +198,7 @@ class APIClient:
                 b = base64.b64encode(f.read()).decode("utf-8")
         except Exception as e:
             self.error_count += 1
-            self.log(f"[API ERROR] Could not read/encode voice image: {e}")
+            self.log(f"[API ERROR] Could not read voice image: {e}")
             return None
         
         prompt = (
@@ -227,11 +225,11 @@ class APIClient:
             content = resp.json()["choices"]["message"]["content"]
             content = self._clean_json_response(content)
             res = json.loads(content)
-            self.log(f"[API] ✓ Success - Voice image '{image_name}' processed")
+            self.log(f"[API] Success - Voice image '{image_name}' processed")
             return res
         except requests.exceptions.RequestException as e:
             self.error_count += 1
-            self.log(f"[API ERROR] Network error analyzing voice '{image_name}': {e}")
+            self.log(f"[API ERROR] Network error: {e}")
             return None
         except (KeyError, IndexError) as e:
             self.error_count += 1
@@ -254,7 +252,7 @@ class APIClient:
     def evaluate_service_images(self, image1_path: str, image2_path: str, 
                                model_name: str, sector: str) -> Optional[dict]:
         """Careful re-evaluation of service images"""
-        self.log(f"[API] EVAL - Re-evaluating service images for '{sector}' (careful mode)")
+        self.log(f"[API] EVAL - Re-evaluating service for '{sector}' (careful mode)")
         return self.process_service_images(image1_path, image2_path, model_name, sector)
     
     def evaluate_generic_image(self, image_path: str, model_name: str, 
@@ -301,7 +299,7 @@ class APIClient:
             return parsed.get("value", None)
         except Exception as e:
             self.error_count += 1
-            self.log(f"[API ERROR] Expression evaluation failed for '{expression}': {e}")
+            self.log(f"[API ERROR] Expression evaluation failed: {e}")
             return None
     
     def get_stats(self) -> dict:
