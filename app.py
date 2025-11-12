@@ -143,60 +143,63 @@ def process_file_streamlit(user_file_path: str,
                             svc_var[k] = v
     
     # Helper: retry single images
-    def _retry_image_and_merge(image_name: str, sector_var_map: dict) -> bool:
-        image_path = os.path.join(images_temp, f"{image_name}.png")
-        if not os.path.exists(image_path):
-            found = None
-            for s_list in images_by_sector.values():
-                for p in s_list:
-                    if Path(p).stem == image_name:
-                        found = p
-                        break
-                if found:
+def _retry_image_and_merge(image_name: str, sector_var_map: dict) -> bool:
+    image_path = os.path.join(images_temp, f"{image_name}.png")
+    if not os.path.exists(image_path):
+        found = None
+        for s_list in images_by_sector.values():
+            for p in s_list:
+                if Path(p).stem == image_name:
+                    found = p
                     break
-            
             if found:
-                image_path = found
-            else:
-                log_append(text_area_placeholder, logs, f"[EVAL WARN] Image {image_name} not found.")
-                return False
+                break
         
-        if image_path in retried_images:
+        if found:
+            image_path = found
+        else:
+            log_append(text_area_placeholder, logs, f"[EVAL WARN] Image {image_name} not found.")
             return False
-        
-        is_voice = image_name.startswith("voicetest")
-        
-        log_append(text_area_placeholder, logs, f"[EVAL] Retrying analysis for {image_name}")
-        if is_voice:
-            normal_res = api.analyze_voice_image(image_path, model_generic, image_name)
-        else:
-            normal_res = api.analyze_generic_image(image_path, model_generic, image_name)
-        
-        retried_images.add(image_path)
-        
-        if normal_res and "image_type" in normal_res:
-            sector_var_map.setdefault(image_name, {})
-            data = normal_res.get("data", {})
-            for k, v in data.items():
-                if sector_var_map[image_name].get(k) is None and v is not None:
-                    sector_var_map[image_name][k] = v
-            return True
-        
-        # Try careful evaluation
-        if is_voice:
-            eval_res = api.evaluate_voice_image(image_path, model_generic, image_name)
-        else:
-            eval_res = api.evaluate_generic_image(image_path, model_generic, image_name)
-        
-        if eval_res and "image_type" in eval_res:
-            sector_var_map.setdefault(image_name, {})
-            for k, v in eval_res.get("data", {}).items():
-                if sector_var_map[image_name].get(k) is None and v is not None:
-                    sector_var_map[image_name][k] = v
-            return True
-        
+    
+    # Ensure image_path is string (fix for unhashable type error)
+    image_path = str(image_path) if not isinstance(image_path, list) else str(image_path[0])
+    
+    if str(image_path) in retried_images:
         return False
     
+    is_voice = image_name.startswith("voicetest")
+    
+    log_append(text_area_placeholder, logs, f"[EVAL] Retrying analysis for {image_name}")
+    if is_voice:
+        normal_res = api.analyze_voice_image(image_path, model_generic, image_name)
+    else:
+        normal_res = api.analyze_generic_image(image_path, model_generic, image_name)
+    
+    retried_images.add(image_path)
+    
+    if normal_res and "image_type" in normal_res:
+        sector_var_map.setdefault(image_name, {})
+        data = normal_res.get("data", {})
+        for k, v in data.items():
+            if sector_var_map[image_name].get(k) is None and v is not None:
+                sector_var_map[image_name][k] = v
+        return True
+    
+    # Try careful evaluation
+    if is_voice:
+        eval_res = api.evaluate_voice_image(image_path, model_generic, image_name)
+    else:
+        eval_res = api.evaluate_generic_image(image_path, model_generic, image_name)
+    
+    if eval_res and "image_type" in eval_res:
+        sector_var_map.setdefault(image_name, {})
+        for k, v in eval_res.get("data", {}).items():
+            if sector_var_map[image_name].get(k) is None and v is not None:
+                sector_var_map[image_name][k] = v
+        return True
+    
+    return False
+
     # Rule 2: Verify expected images and completeness
     sector_maps = [
         ("alpha", stores["alpha_speedtest"], stores["alpha_video"]),
