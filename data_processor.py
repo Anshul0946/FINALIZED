@@ -184,13 +184,19 @@ def compute_averages(alpha_speedtest, beta_speedtest, gamma_speedtest):
 def group_images_by_sector(image_paths: List[str]) -> dict:
     """Group extracted images by sector (alpha/beta/gamma/voicetest)"""
     images_by_sector = {"alpha": [], "beta": [], "gamma": [], "voicetest": [], "unknown": []}
+    
     for p in image_paths:
-        sector = Path(p).stem.split("_")
+        # CRITICAL FIX: Ensure p is a string, not a list
+        path_str = str(p) if not isinstance(p, list) else str(p[0]) if p else ""
+        
+        sector = Path(path_str).stem.split("_")[0]
         if sector in images_by_sector:
-            images_by_sector[sector].append(p)
+            images_by_sector[sector].append(path_str)  # Append string, not original p
         else:
-            images_by_sector["unknown"].append(p)
+            images_by_sector["unknown"].append(path_str)
+    
     return images_by_sector
+
 
 
 def get_global_data_stores():
